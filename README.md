@@ -12,14 +12,14 @@ This plugin requires MangoWC's IPC helper:
 
 The widget uses:
 
-- `mmsg -g -l` to read the current layout
-- `mmsg -d setlayout,<layout>` to switch layouts
+- `mmsg get monitor <name>` / `mmsg watch monitor <name>` to read the current layout
+- `mmsg dispatch setlayout,<layout>` to switch layouts
 
 ## Supported Layouts
 
 The chooser ships with the layouts documented by MangoWC at:
 
-- https://mangowc.vercel.app/docs/window-management/layouts/
+- https://mangowm.github.io/window-management/layouts/
 
 Included layouts:
 
@@ -34,7 +34,9 @@ Included layouts:
 - `vertical_scroller`
 - `vertical_grid`
 - `vertical_deck`
-- `tgmix`
+- `dwindle`
+- `fair`
+- `vertical_fair`
 
 ## Install
 
