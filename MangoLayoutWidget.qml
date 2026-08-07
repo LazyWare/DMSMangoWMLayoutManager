@@ -20,36 +20,39 @@ PluginComponent {
     readonly property string currentLayoutIcon: formatLayoutIcon(currentLayoutRaw)
     readonly property bool busy: queryProcess.running || setProcess.running
     readonly property var layoutOptions: LayoutPreviewData.options()
+    readonly property string monitorName: root.parentScreen && root.parentScreen.name
+        ? String(root.parentScreen.name)
+        : ""
 
     popoutWidth: 560
     popoutHeight: 460
 
     Component.onCompleted: {
         refreshCurrentLayout();
-        watchProcess.running = true;
+        if (root.monitorName) {
+            watchProcess.running = true;
+        }
+    }
+
+    // mmsg has no monitor-agnostic query; every get/watch/dispatch is
+    // addressed to a specific output name.
+    onMonitorNameChanged: {
+        if (root.monitorName && !watchProcess.running) {
+            refreshCurrentLayout();
+            watchProcess.running = true;
+        }
     }
 
     function normalizeLayoutValue(value) {
         const raw = String(value === undefined || value === null ? "" : value).trim();
-        const unquoted = raw.replace(/^"+|"+$/g, "");
-        if (!unquoted) {
-            return "";
-        }
-
-        const layoutMatch = unquoted.match(/\blayout\s+([A-Za-z_]+)\s*$/i);
-        if (layoutMatch) {
-            return layoutMatch[1].trim();
-        }
-
-        if (unquoted.indexOf(":") !== -1) {
-            const parts = unquoted.split(":");
-            return parts[parts.length - 1].trim();
-        }
-
-        return unquoted;
+        return raw.replace(/^"+|"+$/g, "");
     }
 
-    function extractLayoutFromQueryOutput(output) {
+    // `mmsg get monitor <name>` / `mmsg watch monitor <name>` each emit one
+    // JSON object per line (watch pushes the initial state immediately,
+    // then one line per change). The monitor's active layout is exposed as
+    // the short "layout_symbol" code (e.g. "T", "VK", "DW").
+    function extractLayoutSymbol(output) {
         const raw = String(output === undefined || output === null ? "" : output).trim();
         if (!raw) {
             return "";
@@ -60,54 +63,21 @@ PluginComponent {
             return "";
         }
 
-        const screenName = root.parentScreen && root.parentScreen.name
-            ? String(root.parentScreen.name).trim().toLowerCase()
-            : "";
-        let fallbackLayout = "";
-
-        for (let i = 0; i < lines.length; i += 1) {
-            const match = lines[i].match(/^(\S+)\s+layout\s+([A-Za-z_]+)\s*$/i);
-            if (!match) {
-                continue;
-            }
-
-            const lineScreen = String(match[1] || "").trim().toLowerCase();
-            const lineLayout = String(match[2] || "").trim();
-
-            if (!fallbackLayout) {
-                fallbackLayout = lineLayout;
-            }
-
-            if (screenName && lineScreen === screenName) {
-                return lineLayout;
-            }
+        try {
+            const data = JSON.parse(lines[lines.length - 1]);
+            return data && data.layout_symbol ? String(data.layout_symbol) : "";
+        } catch (e) {
+            return "";
         }
-
-        if (fallbackLayout) {
-            return fallbackLayout;
-        }
-
-        if (lines.length === 1) {
-            const normalized = normalizeLayoutValue(lines[0]);
-            if (normalized && normalized !== lines[0]) {
-                return normalized;
-            }
-
-            if (/^[A-Za-z_]+$/.test(lines[0])) {
-                return lines[0];
-            }
-        }
-
-        return "";
     }
 
     function applyLayoutUpdate(output) {
-        const parsed = extractLayoutFromQueryOutput(output);
-        if (!parsed) {
+        const symbol = extractLayoutSymbol(output);
+        if (!symbol) {
             return;
         }
 
-        currentLayoutRaw = parsed;
+        currentLayoutRaw = symbol;
         mangoAvailable = true;
         lastError = "";
     }
@@ -150,6 +120,10 @@ PluginComponent {
             return;
         }
 
+        if (!root.monitorName) {
+            return;
+        }
+
         queryBuffer = "";
         queryProcess.running = true;
     }
@@ -161,13 +135,13 @@ PluginComponent {
 
         pendingLayoutId = layoutId;
         lastError = "";
-        setProcess.command = [mmsgCommand, "-d", "setlayout," + layoutId];
+        setProcess.command = [mmsgCommand, "dispatch", "setlayout," + layoutId];
         setProcess.running = true;
     }
 
     Process {
         id: queryProcess
-        command: [root.mmsgCommand, "-g", "-l"]
+        command: [root.mmsgCommand, "get", "monitor", root.monitorName]
         running: false
 
         stdout: SplitParser {
@@ -181,14 +155,14 @@ PluginComponent {
                 root.applyLayoutUpdate(root.queryBuffer);
             } else {
                 root.mangoAvailable = false;
-                root.lastError = "Failed to query MangoWC with mmsg -g -l.";
+                root.lastError = "Failed to query MangoWC with mmsg get monitor.";
             }
         }
     }
 
     Process {
         id: watchProcess
-        command: [root.mmsgCommand, "-w", "-t", "-l"]
+        command: [root.mmsgCommand, "watch", "monitor", root.monitorName]
         running: false
 
         stdout: SplitParser {
@@ -199,7 +173,7 @@ PluginComponent {
 
         onExited: exitCode => {
             if (exitCode !== 0) {
-                root.lastError = "Failed to watch MangoWC layout changes with mmsg -w -t -l.";
+                root.lastError = "Failed to watch MangoWC layout changes with mmsg watch monitor.";
                 root.mangoAvailable = false;
             }
         }
@@ -207,7 +181,7 @@ PluginComponent {
 
     Process {
         id: setProcess
-        command: [root.mmsgCommand, "-d", ""]
+        command: [root.mmsgCommand, "dispatch", ""]
         running: false
 
         onExited: exitCode => {
@@ -218,7 +192,7 @@ PluginComponent {
                 root.closePopout();
                 Qt.callLater(root.refreshCurrentLayout);
             } else {
-                root.lastError = "Failed to switch layout with mmsg -d setlayout,<layout>.";
+                root.lastError = "Failed to switch layout with mmsg dispatch setlayout,<layout>.";
             }
 
             root.pendingLayoutId = "";
