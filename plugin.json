@@ -1,6 +1,6 @@
 {
-	"id": "DMSMangoWCLayoutManager",
-	"name": "MangoWC Layout Manager",
+	"id": "DMSMangoWMLayoutManager",
+	"name": "MangoWM Layout Manager",
 	"description": "Switch the active MangoWC layout from DankBar.",
 	"version": "0.1.0",
 	"author": "omarluq",
