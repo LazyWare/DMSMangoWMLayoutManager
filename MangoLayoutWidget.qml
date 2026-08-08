@@ -1,3 +1,4 @@
+// version: 0.1.1
 import QtQuick
 import Quickshell.Io
 import qs.Common
@@ -283,7 +284,11 @@ PluginComponent {
 
                 DankFlickable {
                     width: parent.width
-                    height: Math.max(160, root.popoutHeight - chooser.headerHeight - chooser.detailsHeight - titleRow.implicitHeight - (root.lastError !== "" ? 132 : 72))
+                    // Size to the actual grid content so the popout (which auto-grows to
+                    // its content's implicitHeight, see PluginPopout.qml) shows every
+                    // layout tile without clipping; cap at 75% of screen height as a
+                    // safety net for short displays.
+                    height: Math.min(buttonGrid.implicitHeight + Theme.spacingM * 2, root.parentScreen ? root.parentScreen.height * 0.75 : 700)
                     clip: true
                     contentWidth: width
                     contentHeight: buttonGrid.implicitHeight + Theme.spacingM * 2
