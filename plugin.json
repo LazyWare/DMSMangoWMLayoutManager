@@ -1,11 +1,11 @@
 {
 	"id": "DMSMangoWMLayoutManager",
 	"name": "MangoWM Layout Manager",
-	"description": "Switch the active MangoWC layout from DankBar.",
+	"description": "Switch the active MangoWM layout from DankBar.",
 	"version": "0.1.0",
 	"author": "omarluq",
 	"type": "widget",
-	"capabilities": ["dankbar-widget", "window-management", "mangowc"],
+	"capabilities": ["dankbar-widget", "window-management", "mangowm"],
 	"component": "./MangoLayoutWidget.qml",
 	"icon": "grid_view",
 	"requires_dms": ">=1.2.0",

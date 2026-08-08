@@ -1,12 +1,12 @@
-# MangoWC Layout Manager
+# MangoWM Layout Manager
 
-A simple DMS widget for switching the active MangoWC layout from the bar.
+A simple DMS widget for switching the active MangoWM layout from the bar.
 
-![MangoWC Layout Manager screenshot](./screenshot.png)
+![MangoWM Layout Manager screenshot](./screenshot.png)
 
 ## Dependency
 
-This plugin requires MangoWC's IPC helper:
+This plugin requires MangoWM's IPC helper:
 
 - `mmsg`
 
@@ -17,7 +17,7 @@ The widget uses:
 
 ## Supported Layouts
 
-The chooser ships with the layouts documented by MangoWC at:
+The chooser ships with the layouts documented by MangoWM at:
 
 - https://mangowm.github.io/window-management/layouts/
 
@@ -48,5 +48,5 @@ Then restart DMS and enable the plugin in the Plugins settings tab.
 
 ## Notes
 
-- Layout changes are applied through MangoWC's currently focused context.
-- If `mmsg` is missing or MangoWC is not running, the widget shows an unavailable state.
+- Layout changes are applied through MangoWM's currently focused context.
+- If `mmsg` is missing or MangoWM is not running, the widget shows an unavailable state.

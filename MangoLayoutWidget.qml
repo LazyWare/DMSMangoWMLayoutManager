@@ -1,4 +1,4 @@
-// version: 0.1.1
+// version: 0.1.2
 import QtQuick
 import Quickshell.Io
 import qs.Common
@@ -156,7 +156,7 @@ PluginComponent {
                 root.applyLayoutUpdate(root.queryBuffer);
             } else {
                 root.mangoAvailable = false;
-                root.lastError = "Failed to query MangoWC with mmsg get monitor.";
+                root.lastError = "Failed to query MangoWM with mmsg get monitor.";
             }
         }
     }
@@ -174,7 +174,7 @@ PluginComponent {
 
         onExited: exitCode => {
             if (exitCode !== 0) {
-                root.lastError = "Failed to watch MangoWC layout changes with mmsg watch monitor.";
+                root.lastError = "Failed to watch MangoWM layout changes with mmsg watch monitor.";
                 root.mangoAvailable = false;
             }
         }
@@ -248,7 +248,7 @@ PluginComponent {
                         }
 
                         StyledText {
-                            text: "MangoWC Layout Manager"
+                            text: "MangoWM Layout Manager"
                             color: Theme.surfaceText
                             font.pixelSize: Theme.fontSizeLarge
                             font.weight: Font.DemiBold
