@@ -1,3 +1,4 @@
+// version: 0.1.1
 import QtQuick
 import qs.Common
 import qs.Widgets
@@ -12,10 +13,29 @@ Item {
     property real widgetThickness: 0
     property real horizontalPadding: Theme.spacingXS
 
+    // direction: +1 = next layout, -1 = previous layout.
+    signal scrollRequested(int direction)
+
     implicitWidth: root.vertical ? root.widgetThickness : pillRow.implicitWidth + root.horizontalPadding * 2
     implicitHeight: root.vertical ? pillColumn.implicitHeight + Theme.spacingL * 2 : root.widgetThickness
     width: implicitWidth
     height: implicitHeight
+
+    // Wheel-only: acceptedButtons is NoButton so press/click events fall
+    // through to BasePill's own MouseArea underneath, which already
+    // handles left-click (open popout) and right-click (toggle).
+    MouseArea {
+        anchors.fill: parent
+        acceptedButtons: Qt.NoButton
+        onWheel: function (wheelEvent) {
+            const delta = wheelEvent.angleDelta.y !== 0 ? wheelEvent.angleDelta.y : wheelEvent.angleDelta.x;
+            if (delta === 0) {
+                return;
+            }
+            wheelEvent.accepted = true;
+            root.scrollRequested(delta > 0 ? 1 : -1);
+        }
+    }
 
     Row {
         id: pillRow

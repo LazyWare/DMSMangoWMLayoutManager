@@ -1,4 +1,4 @@
-// version: 0.1.2
+// version: 0.2.0
 import QtQuick
 import Quickshell.Io
 import qs.Common
@@ -12,10 +12,21 @@ PluginComponent {
     property string mmsgCommand: "mmsg"
     readonly property real pillHorizontalPadding: Theme.spacingXS
     property string currentLayoutRaw: ""
+    // Layout active immediately before the current one, updated on every
+    // real transition regardless of source (click, scroll, right-click
+    // toggle, or an external tag change picked up via `mmsg watch`).
+    // Used by the right-click toggle to switch back.
+    property string previousLayoutRaw: ""
     property string lastError: ""
     property string queryBuffer: ""
     property string pendingLayoutId: ""
     property bool mangoAvailable: false
+    // Fallback target for the right-click toggle when there is no
+    // previousLayoutRaw yet (e.g. right after launch).
+    readonly property string rightClickFallbackId: "monocle"
+    // Timestamp (ms) of the last scroll-triggered layout switch, used to
+    // throttle bursts of wheel events from trackpad kinetic scrolling.
+    property real lastScrollCycleTime: 0
 
     readonly property string currentLayoutCode: formatLayoutCode(currentLayoutRaw)
     readonly property string currentLayoutIcon: formatLayoutIcon(currentLayoutRaw)
@@ -28,11 +39,20 @@ PluginComponent {
     popoutWidth: 560
     popoutHeight: 460
 
+    // Right-click toggles between a configurable target layout and
+    // whatever was active before; scroll cycles through the configured
+    // layout list. Both read their config fresh from pluginService on
+    // every use, so edits made in the Settings page apply immediately.
+    pillRightClickAction: function () {
+        root.toggleRightClickLayout();
+    }
+
     Component.onCompleted: {
         refreshCurrentLayout();
         if (root.monitorName) {
             watchProcess.running = true;
         }
+        startupPollTimer.restart();
     }
 
     // mmsg has no monitor-agnostic query; every get/watch/dispatch is
@@ -41,6 +61,27 @@ PluginComponent {
         if (root.monitorName && !watchProcess.running) {
             refreshCurrentLayout();
             watchProcess.running = true;
+            startupPollTimer.restart();
+        }
+    }
+
+    // Defensive retry for a race at launch between the compositor/mmsg
+    // socket becoming ready and our first query: retries a few times,
+    // a short interval apart, until a layout is known.
+    Timer {
+        id: startupPollTimer
+        interval: 400
+        repeat: true
+        property int attempts: 0
+
+        onTriggered: {
+            attempts += 1;
+            if (root.mangoAvailable || attempts >= 5) {
+                stop();
+                attempts = 0;
+                return;
+            }
+            root.refreshCurrentLayout();
         }
     }
 
@@ -78,9 +119,97 @@ PluginComponent {
             return;
         }
 
-        currentLayoutRaw = symbol;
+        recordLayoutTransition(symbol);
         mangoAvailable = true;
         lastError = "";
+    }
+
+    // Single place that updates currentLayoutRaw, used both for changes
+    // detected externally (watch/query) and for changes we trigger
+    // ourselves (setLayout). Keeps previousLayoutRaw consistent
+    // regardless of what caused the transition.
+    function recordLayoutTransition(symbol) {
+        // Compare logical layout identity, not the raw string: currentLayoutRaw
+        // sometimes holds the mmsg code ("M") and sometimes a layout id
+        // ("monocle") depending on the source, and both can refer to the
+        // same layout via LayoutPreviewData's aliases.
+        const incomingOption = lookupLayout(symbol);
+        const currentOption = lookupLayout(currentLayoutRaw);
+        const incomingId = incomingOption ? incomingOption.id : normalizeLayoutValue(symbol);
+        const currentId = currentOption ? currentOption.id : normalizeLayoutValue(currentLayoutRaw);
+
+        if (incomingId && incomingId !== currentId && currentLayoutRaw) {
+            previousLayoutRaw = currentLayoutRaw;
+        }
+        currentLayoutRaw = symbol;
+    }
+
+    function loadPluginValue(key, defaultValue) {
+        if (root.pluginService && root.pluginService.loadPluginData) {
+            return root.pluginService.loadPluginData(root.pluginId, key, defaultValue);
+        }
+        return defaultValue;
+    }
+
+    function toggleRightClickLayout() {
+        // Same fallback as rightClickFallbackId below: right-click must work
+        // even before the Settings page has ever been opened and saved a
+        // value (loadPluginValue would otherwise return "" and no-op here).
+        const targetId = normalizeLayoutValue(loadPluginValue("rightClickTarget", root.rightClickFallbackId));
+        if (!targetId) {
+            return;
+        }
+
+        if (isCurrentLayout(targetId)) {
+            const previousOption = root.previousLayoutRaw ? lookupLayout(root.previousLayoutRaw) : null;
+            const returnId = previousOption ? previousOption.id : (targetId !== root.rightClickFallbackId ? root.rightClickFallbackId : "");
+            if (returnId) {
+                setLayout(returnId);
+            }
+            return;
+        }
+
+        setLayout(targetId);
+    }
+
+    // Ordered list of layout ids to cycle through with the scroll wheel,
+    // filtered to the ones the user left enabled in the Settings page.
+    // Falls back to every known layout, in the popout's natural order,
+    // when nothing has been configured yet.
+    function scrollCycleList() {
+        const stored = loadPluginValue("scrollCycleLayouts", null);
+        if (Array.isArray(stored) && stored.length > 0) {
+            return stored.filter(entry => entry && entry.id && entry.enabled !== false).map(entry => entry.id);
+        }
+        return LayoutPreviewData.options().map(option => option.id);
+    }
+
+    function cycleLayout(direction) {
+        const ids = root.scrollCycleList();
+        if (ids.length === 0) {
+            return;
+        }
+
+        const currentOption = lookupLayout(root.currentLayoutRaw);
+        const currentId = currentOption ? currentOption.id : "";
+        const index = ids.indexOf(currentId);
+        const nextIndex = ((index + direction) % ids.length + ids.length) % ids.length;
+        root.setLayout(ids[nextIndex]);
+    }
+
+    // Throttles scroll-triggered layout switches: trackpad kinetic scroll
+    // fires many wheel events per physical swipe, each of which would
+    // otherwise cycle one more layout. scrollCooldownMs (Settings page,
+    // default matches SliderSetting's defaultValue: 250) sets the minimum
+    // gap between two accepted switches.
+    function handleScrollCycle(direction) {
+        const cooldown = loadPluginValue("scrollCooldownMs", 250);
+        const now = Date.now();
+        if (now - root.lastScrollCycleTime < cooldown) {
+            return;
+        }
+        root.lastScrollCycleTime = now;
+        root.cycleLayout(direction);
     }
 
     function lookupLayout(value) {
@@ -189,7 +318,7 @@ PluginComponent {
             if (exitCode === 0) {
                 root.mangoAvailable = true;
                 root.lastError = "";
-                root.currentLayoutRaw = root.pendingLayoutId;
+                root.recordLayoutTransition(root.pendingLayoutId);
                 root.closePopout();
                 Qt.callLater(root.refreshCurrentLayout);
             } else {
@@ -207,6 +336,7 @@ PluginComponent {
             iconName: root.currentLayoutIcon
             widgetThickness: root.widgetThickness
             horizontalPadding: root.pillHorizontalPadding
+            onScrollRequested: direction => root.handleScrollCycle(direction)
         }
     }
 
@@ -217,6 +347,7 @@ PluginComponent {
             code: root.currentLayoutCode
             iconName: root.currentLayoutIcon
             widgetThickness: root.widgetThickness
+            onScrollRequested: direction => root.handleScrollCycle(direction)
         }
     }
 
@@ -226,6 +357,17 @@ PluginComponent {
             headerText: ""
             detailsText: ""
             showCloseButton: true
+
+            // Force a fresh query every time the popout is actually shown,
+            // not just at plugin startup: `opened` fires on every open
+            // (verified in DankPopoutStandalone.qml), unlike Component.onCompleted
+            // which only fires once since this content stays alive across toggles.
+            Connections {
+                target: chooser.parentPopout
+                function onOpened() {
+                    root.refreshCurrentLayout();
+                }
+            }
 
             Column {
                 width: parent.width
