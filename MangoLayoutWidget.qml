@@ -1,4 +1,4 @@
-// version: 0.2.0
+// version: 0.3.4
 import QtQuick
 import Quickshell.Io
 import qs.Common
@@ -31,7 +31,7 @@ PluginComponent {
     readonly property string currentLayoutCode: formatLayoutCode(currentLayoutRaw)
     readonly property string currentLayoutIcon: formatLayoutIcon(currentLayoutRaw)
     readonly property bool busy: queryProcess.running || setProcess.running
-    readonly property var layoutOptions: LayoutPreviewData.options()
+    property var layoutOptions: root.visibleLayoutOptions()
     readonly property string monitorName: root.parentScreen && root.parentScreen.name
         ? String(root.parentScreen.name)
         : ""
@@ -39,10 +39,11 @@ PluginComponent {
     popoutWidth: 560
     popoutHeight: 460
 
-    // Right-click toggles between a configurable target layout and
-    // whatever was active before; scroll cycles through the configured
-    // layout list. Both read their config fresh from pluginService on
-    // every use, so edits made in the Settings page apply immediately.
+    // Right-click and middle-click each toggle between their own
+    // independently configurable target layout and whatever was active
+    // before; scroll cycles through the configured layout list. All three
+    // read their config fresh from pluginService on every use, so edits
+    // made in the Settings page apply immediately.
     pillRightClickAction: function () {
         root.toggleRightClickLayout();
     }
@@ -151,18 +152,20 @@ PluginComponent {
         return defaultValue;
     }
 
-    function toggleRightClickLayout() {
-        // Same fallback as rightClickFallbackId below: right-click must work
-        // even before the Settings page has ever been opened and saved a
-        // value (loadPluginValue would otherwise return "" and no-op here).
-        const targetId = normalizeLayoutValue(loadPluginValue("rightClickTarget", root.rightClickFallbackId));
+    // Shared by the right-click and middle-click toggles: reads `settingKey`
+    // fresh from pluginService on every use (so Settings-page edits apply
+    // immediately), then either switches to targetId or, if that's already
+    // the active layout, back to whatever was active before it (falling
+    // back to fallbackId when there's no previousLayoutRaw yet).
+    function toggleConfiguredLayout(settingKey, fallbackId) {
+        const targetId = normalizeLayoutValue(loadPluginValue(settingKey, fallbackId));
         if (!targetId) {
             return;
         }
 
         if (isCurrentLayout(targetId)) {
             const previousOption = root.previousLayoutRaw ? lookupLayout(root.previousLayoutRaw) : null;
-            const returnId = previousOption ? previousOption.id : (targetId !== root.rightClickFallbackId ? root.rightClickFallbackId : "");
+            const returnId = previousOption ? previousOption.id : (targetId !== fallbackId ? fallbackId : "");
             if (returnId) {
                 setLayout(returnId);
             }
@@ -172,16 +175,40 @@ PluginComponent {
         setLayout(targetId);
     }
 
-    // Ordered list of layout ids to cycle through with the scroll wheel,
-    // filtered to the ones the user left enabled in the Settings page.
-    // Falls back to every known layout, in the popout's natural order,
-    // when nothing has been configured yet.
-    function scrollCycleList() {
+    // Right-click must work even before the Settings page has ever been
+    // opened and saved a value, hence the rightClickFallbackId default.
+    function toggleRightClickLayout() {
+        root.toggleConfiguredLayout("rightClickTarget", root.rightClickFallbackId);
+    }
+
+    // Middle-click has no fallback: it's a second, independent target the
+    // user opts into from Settings, "None" (disabled) until then.
+    function toggleMiddleClickLayout() {
+        root.toggleConfiguredLayout("middleClickTarget", "");
+    }
+
+    // Ordered, visibility-filtered layout list — single source of truth for
+    // both the popout grid (layoutOptions) and the scroll cycle, driven by
+    // the Settings page's "Scroll cycle" list. Falls back to every known
+    // layout, in the popout's natural order, when nothing has been
+    // configured yet. Deliberately NOT applied to the right-click target
+    // dropdown, which lists every layout regardless of visibility here —
+    // that lets a layout be reachable only via right-click, hidden from
+    // the grid and the scroll cycle.
+    function visibleLayoutOptions() {
         const stored = loadPluginValue("scrollCycleLayouts", null);
         if (Array.isArray(stored) && stored.length > 0) {
-            return stored.filter(entry => entry && entry.id && entry.enabled !== false).map(entry => entry.id);
+            return stored
+                .filter(entry => entry && entry.id && entry.enabled !== false)
+                .map(entry => LayoutPreviewData.findOption(entry.id))
+                .filter(option => option);
         }
-        return LayoutPreviewData.options().map(option => option.id);
+        return LayoutPreviewData.options();
+    }
+
+    // Ordered list of layout ids to cycle through with the scroll wheel.
+    function scrollCycleList() {
+        return root.visibleLayoutOptions().map(option => option.id);
     }
 
     function cycleLayout(direction) {
@@ -200,10 +227,10 @@ PluginComponent {
     // Throttles scroll-triggered layout switches: trackpad kinetic scroll
     // fires many wheel events per physical swipe, each of which would
     // otherwise cycle one more layout. scrollCooldownMs (Settings page,
-    // default matches SliderSetting's defaultValue: 250) sets the minimum
+    // default matches SliderSetting's defaultValue: 500) sets the minimum
     // gap between two accepted switches.
     function handleScrollCycle(direction) {
-        const cooldown = loadPluginValue("scrollCooldownMs", 250);
+        const cooldown = loadPluginValue("scrollCooldownMs", 500);
         const now = Date.now();
         if (now - root.lastScrollCycleTime < cooldown) {
             return;
@@ -337,6 +364,7 @@ PluginComponent {
             widgetThickness: root.widgetThickness
             horizontalPadding: root.pillHorizontalPadding
             onScrollRequested: direction => root.handleScrollCycle(direction)
+            onMiddleClickRequested: root.toggleMiddleClickLayout()
         }
     }
 
@@ -348,6 +376,7 @@ PluginComponent {
             iconName: root.currentLayoutIcon
             widgetThickness: root.widgetThickness
             onScrollRequested: direction => root.handleScrollCycle(direction)
+            onMiddleClickRequested: root.toggleMiddleClickLayout()
         }
     }
 
@@ -366,6 +395,7 @@ PluginComponent {
                 target: chooser.parentPopout
                 function onOpened() {
                     root.refreshCurrentLayout();
+                    root.layoutOptions = root.visibleLayoutOptions();
                 }
             }
 

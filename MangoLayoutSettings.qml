@@ -1,4 +1,4 @@
-// version: 0.2.0
+// version: 0.3.4
 import QtQuick
 import qs.Common
 import qs.Widgets
@@ -20,12 +20,29 @@ PluginSettings {
     SelectionSetting {
         settingKey: "rightClickTarget"
         label: "Right-click toggle target"
-        description: "Right-clicking the bar widget switches to this layout, or back to the previous one if it's already active."
-        options: LayoutPreviewData.options().map(option => ({
+        description: "Right-clicking the bar widget switches to this layout, or back to the previous one if it's already active. Choose None to disable."
+        options: [{
+                value: "",
+                label: "None"
+            }].concat(LayoutPreviewData.options().map(option => ({
                 value: option.id,
                 label: option.label
-            }))
+            })))
         defaultValue: "monocle"
+    }
+
+    SelectionSetting {
+        settingKey: "middleClickTarget"
+        label: "Middle-click toggle target"
+        description: "Middle-clicking the bar widget switches to this layout, or back to the previous one if it's already active. Choose None to disable."
+        options: [{
+                value: "",
+                label: "None"
+            }].concat(LayoutPreviewData.options().map(option => ({
+                value: option.id,
+                label: option.label
+            })))
+        defaultValue: ""
     }
 
     ListSetting {
@@ -58,6 +75,24 @@ PluginSettings {
             scrollList.items = updated;
         }
 
+        // ListSetting (shared DMS component, not ours) only loads its saved
+        // value once, in its own Component.onCompleted - at which point
+        // pluginService is still null (PluginListItem.qml assigns it to the
+        // settings page instance after construction). Unlike SelectionSetting/
+        // ToggleSetting/SliderSetting/etc., ListSetting exposes no loadValue()
+        // function of its own, so it never took part in PluginSettings' reload
+        // protocol (see PluginSettings.qml: onPluginServiceChanged and
+        // reloadChildValues() both call child.loadValue() for every child that
+        // has one). Adding it here opts this instance into that same protocol,
+        // without touching the shared DMS component - fixes order/enabled
+        // state reverting to defaultValue after a reload.
+        function loadValue() {
+            const settings = findSettings();
+            if (settings) {
+                items = settings.loadValue(settingKey, defaultValue);
+            }
+        }
+
         delegate: Component {
             StyledRect {
                 id: row
@@ -69,6 +104,39 @@ PluginSettings {
                 radius: Theme.cornerRadius
                 color: Theme.withAlpha(Theme.surfaceContainerHigh, Theme.popupTransparency)
                 border.width: 0
+
+                // Live visual feedback for the row being dragged (see dragArea below).
+                // Purely cosmetic: an additive transform that follows the raw mouse
+                // delta, on top of whatever position Column/y already assigns - it
+                // never touches `index`/`items`, so it can't reintroduce the
+                // recreate-kills-the-drag bug the step-based moveItem() below works
+                // around. z raises the dragged row above its neighbors while it
+                // slides past them; the Behavior (disabled while pressed, so the
+                // offset tracks the cursor 1:1 with no lag) animates it back to 0 on
+                // release, in sync with the reflow Behavior on y triggers below.
+                property real dragOffsetY: 0
+                z: dragArea.pressed ? 2 : 0
+                transform: Translate {
+                    y: row.dragOffsetY
+                }
+                Behavior on dragOffsetY {
+                    enabled: !dragArea.pressed
+                    NumberAnimation {
+                        duration: Theme.shortDuration
+                        easing.type: Easing.OutCubic
+                    }
+                }
+
+                // Animates the reflow triggered by moveItem() (called either from a
+                // drag step below or, previously, from the up/down arrow buttons this
+                // delegate used to have). Column still owns `y`; Behavior only smooths
+                // the transition to whatever position Column assigns, it doesn't fight it.
+                Behavior on y {
+                    NumberAnimation {
+                        duration: Theme.shortDuration
+                        easing.type: Easing.OutCubic
+                    }
+                }
 
                 Row {
                     anchors.left: parent.left
@@ -98,28 +166,78 @@ PluginSettings {
                     }
                 }
 
-                Row {
+                Item {
+                    id: dragHandle
                     anchors.right: parent.right
                     anchors.rightMargin: Theme.spacingM
                     anchors.verticalCenter: parent.verticalCenter
-                    spacing: Theme.spacingXS
+                    width: 24
+                    height: 24
 
-                    DankActionButton {
-                        buttonSize: 28
-                        iconName: "arrow_upward"
-                        iconSize: 16
-                        iconColor: row.index === 0 ? Theme.outline : Theme.surfaceText
-                        enabled: row.index > 0
-                        onClicked: scrollList.moveItem(row.index, -1)
+                    // One row "slot" (delegate height + the gap ListSetting.qml's own
+                    // inner Column puts between rows, Theme.spacingS - not exposed as a
+                    // property on scrollList, so mirrored here as a literal).
+                    readonly property real slotHeight: row.height + Theme.spacingS
+
+                    DankIcon {
+                        name: "drag_indicator"
+                        size: Theme.iconSize - 4
+                        color: dragArea.pressed ? Theme.primary : Theme.outline
+                        anchors.centerIn: parent
                     }
 
-                    DankActionButton {
-                        buttonSize: 28
-                        iconName: "arrow_downward"
-                        iconSize: 16
-                        iconColor: row.index === scrollList.items.length - 1 ? Theme.outline : Theme.surfaceText
-                        enabled: row.index < scrollList.items.length - 1
-                        onClicked: scrollList.moveItem(row.index, 1)
+                    MouseArea {
+                        id: dragArea
+                        anchors.fill: parent
+                        // Without this, the ancestor Flickable (the Settings
+                        // page's own scroll container) steals the mouse grab
+                        // as soon as it sees vertical movement past its drag
+                        // threshold, so the whole page scrolls instead of
+                        // this row moving. preventStealing keeps the grab
+                        // here for the duration of the press.
+                        preventStealing: true
+                        cursorShape: pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor
+
+                        // Step-based drag, resolved once on release rather than live:
+                        // scrollList.items is a plain JS array, and ListSetting's
+                        // Repeater (shared DMS component) is bound to it directly - it
+                        // can't diff a plain array like it would a ListModel, so every
+                        // reassignment destroys and recreates ALL delegates, including
+                        // this one's own MouseArea. Calling moveItem() (and therefore
+                        // reassigning items) on every slot crossed - as this used to do
+                        // - killed the drag after one step: the freshly recreated
+                        // MouseArea is born after the button is already down, so it
+                        // never sees the press and pressed stays false. Fix: only
+                        // accumulate the net number of slots crossed while dragging
+                        // (items untouched, so this MouseArea instance survives the
+                        // whole gesture), and apply a single moveItem() with the full
+                        // delta on release. moveItem() already accepts any delta, not
+                        // just +-1. Trade-off: the other rows no longer reflow live
+                        // while dragging, only once, on release.
+                        property real pressY: 0
+                        property int pressIndex: 0
+                        property int pendingSteps: 0
+
+                        onPressed: mouse => {
+                            pressY = mouse.y;
+                            pressIndex = row.index;
+                            pendingSteps = 0;
+                        }
+                        onPositionChanged: mouse => {
+                            if (!pressed) {
+                                return;
+                            }
+                            const totalDelta = mouse.y - pressY;
+                            pendingSteps = Math.trunc(totalDelta / dragHandle.slotHeight);
+                            row.dragOffsetY = totalDelta;
+                        }
+                        onReleased: {
+                            if (pendingSteps !== 0) {
+                                scrollList.moveItem(pressIndex, pendingSteps);
+                            }
+                            pendingSteps = 0;
+                            row.dragOffsetY = 0;
+                        }
                     }
                 }
             }
@@ -130,8 +248,8 @@ PluginSettings {
         settingKey: "scrollCooldownMs"
         label: "Scroll speed"
         description: "Minimum time between layout changes while scrolling or swiping the bar widget. Raise this if a trackpad swipe jumps through several layouts at once; lower it for a snappier response with a mouse wheel."
-        defaultValue: 250
-        minimum: 0
+        defaultValue: 500
+        minimum: 200
         maximum: 1000
         unit: "ms"
         leftIcon: "speed"

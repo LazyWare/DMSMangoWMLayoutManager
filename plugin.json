@@ -2,7 +2,7 @@
 	"id": "DMSMangoWMLayoutManager",
 	"name": "MangoWM Layout Manager",
 	"description": "Switch the active MangoWM layout from DankBar",
-	"version": "0.2.0",
+	"version": "0.3.4",
 	"author": "LazyWare",
 	"type": "widget",
 	"capabilities": ["dankbar-widget", "window-management", "mangowm"],

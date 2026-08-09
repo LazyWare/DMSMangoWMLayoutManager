@@ -1,4 +1,4 @@
-// version: 0.1.1
+// version: 0.3.4
 import QtQuick
 import qs.Common
 import qs.Widgets
@@ -15,18 +15,32 @@ Item {
 
     // direction: +1 = next layout, -1 = previous layout.
     signal scrollRequested(int direction)
+    signal middleClickRequested()
 
     implicitWidth: root.vertical ? root.widgetThickness : pillRow.implicitWidth + root.horizontalPadding * 2
     implicitHeight: root.vertical ? pillColumn.implicitHeight + Theme.spacingL * 2 : root.widgetThickness
     width: implicitWidth
     height: implicitHeight
 
-    // Wheel-only: acceptedButtons is NoButton so press/click events fall
-    // through to BasePill's own MouseArea underneath, which already
-    // handles left-click (open popout) and right-click (toggle).
+    // WORKAROUND for missing native middle-click support in the DMS plugin
+    // framework: PluginComponent exposes pillRightClickAction but no
+    // pillMiddleClickAction equivalent, and BasePill's own MouseArea only
+    // accepts Left/Right (see BasePill.qml, acceptedButtons). So we
+    // intercept the middle button ourselves, one layer up. Left/right
+    // press/click events still fall through untouched to BasePill's
+    // MouseArea underneath (only MiddleButton is accepted here). Wheel
+    // events aren't gated by acceptedButtons, so they're unaffected too.
+    //
+    // If DMS ever adds a native pillMiddleClickAction (mirroring
+    // pillRightClickAction): delete this MouseArea and the
+    // middleClickRequested signal, and wire
+    // `pillMiddleClickAction: function () { root.toggleRightClickLayout(); }`
+    // directly in MangoLayoutWidget.qml instead — toggleRightClickLayout()
+    // itself doesn't change, it doesn't know or care how it gets invoked.
     MouseArea {
         anchors.fill: parent
-        acceptedButtons: Qt.NoButton
+        acceptedButtons: Qt.MiddleButton
+        onPressed: root.middleClickRequested()
         onWheel: function (wheelEvent) {
             const delta = wheelEvent.angleDelta.y !== 0 ? wheelEvent.angleDelta.y : wheelEvent.angleDelta.x;
             if (delta === 0) {
