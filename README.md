@@ -78,7 +78,7 @@ Included layouts:
 
 Copy this directory into:
 
-- `~/.config/DankMaterialShell/plugins/DMSMangoWMLayoutManager`
+- `~/.config/DankMaterialShell/plugins/mangoWmLayoutManager`
 
 Then restart DMS and enable the plugin in the Plugins settings tab.
 

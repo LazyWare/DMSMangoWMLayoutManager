@@ -1,4 +1,3 @@
-// version: 0.3.4
 import QtQuick
 import qs.Common
 import qs.Widgets
@@ -7,7 +6,7 @@ import "LayoutPreviewData.js" as LayoutPreviewData
 
 PluginSettings {
     id: root
-    pluginId: "DMSMangoWMLayoutManager"
+    pluginId: "mangoWmLayoutManager"
 
     StyledText {
         width: parent.width
@@ -108,12 +107,12 @@ PluginSettings {
                 // Live visual feedback for the row being dragged (see dragArea below).
                 // Purely cosmetic: an additive transform that follows the raw mouse
                 // delta, on top of whatever position Column/y already assigns - it
-                // never touches `index`/`items`, so it can't reintroduce the
-                // recreate-kills-the-drag bug the step-based moveItem() below works
-                // around. z raises the dragged row above its neighbors while it
-                // slides past them; the Behavior (disabled while pressed, so the
-                // offset tracks the cursor 1:1 with no lag) animates it back to 0 on
-                // release, in sync with the reflow Behavior on y triggers below.
+                // never touches `index`/`items`, so it can't interfere with the
+                // step-based moveItem() below. z raises the dragged row above its
+                // neighbors while it slides past them; the Behavior (disabled while
+                // pressed, so the offset tracks the cursor 1:1 with no lag) animates
+                // it back to 0 on release, in sync with the reflow Behavior on y
+                // triggers below.
                 property real dragOffsetY: 0
                 z: dragArea.pressed ? 2 : 0
                 transform: Translate {
@@ -127,10 +126,9 @@ PluginSettings {
                     }
                 }
 
-                // Animates the reflow triggered by moveItem() (called either from a
-                // drag step below or, previously, from the up/down arrow buttons this
-                // delegate used to have). Column still owns `y`; Behavior only smooths
-                // the transition to whatever position Column assigns, it doesn't fight it.
+                // Animates the reflow triggered by moveItem() (called from a drag step
+                // below). Column still owns `y`; Behavior only smooths the transition
+                // to whatever position Column assigns, it doesn't fight it.
                 Behavior on y {
                     NumberAnimation {
                         duration: Theme.shortDuration
@@ -199,21 +197,15 @@ PluginSettings {
                         cursorShape: pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor
 
                         // Step-based drag, resolved once on release rather than live:
-                        // scrollList.items is a plain JS array, and ListSetting's
-                        // Repeater (shared DMS component) is bound to it directly - it
-                        // can't diff a plain array like it would a ListModel, so every
-                        // reassignment destroys and recreates ALL delegates, including
-                        // this one's own MouseArea. Calling moveItem() (and therefore
-                        // reassigning items) on every slot crossed - as this used to do
-                        // - killed the drag after one step: the freshly recreated
-                        // MouseArea is born after the button is already down, so it
-                        // never sees the press and pressed stays false. Fix: only
-                        // accumulate the net number of slots crossed while dragging
-                        // (items untouched, so this MouseArea instance survives the
-                        // whole gesture), and apply a single moveItem() with the full
-                        // delta on release. moveItem() already accepts any delta, not
-                        // just +-1. Trade-off: the other rows no longer reflow live
-                        // while dragging, only once, on release.
+                        // scrollList.items is a plain JS array, and ListSetting's Repeater
+                        // (shared DMS component) is bound to it directly - it can't diff a
+                        // plain array like it would a ListModel, so every reassignment
+                        // destroys and recreates ALL delegates, including this one's own
+                        // MouseArea, losing the mid-drag press state. Only the net number
+                        // of slots crossed is accumulated while dragging (items untouched,
+                        // so this MouseArea survives the gesture); moveItem() applies the
+                        // full delta once, on release. Trade-off: other rows don't reflow
+                        // live while dragging, only once, on release.
                         property real pressY: 0
                         property int pressIndex: 0
                         property int pendingSteps: 0

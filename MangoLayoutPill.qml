@@ -1,4 +1,3 @@
-// version: 0.3.4
 import QtQuick
 import qs.Common
 import qs.Widgets

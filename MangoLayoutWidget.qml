@@ -1,4 +1,3 @@
-// version: 0.3.4
 import QtQuick
 import Quickshell.Io
 import qs.Common
@@ -206,13 +205,9 @@ PluginComponent {
         return LayoutPreviewData.options();
     }
 
-    // Ordered list of layout ids to cycle through with the scroll wheel.
-    function scrollCycleList() {
-        return root.visibleLayoutOptions().map(option => option.id);
-    }
-
     function cycleLayout(direction) {
-        const ids = root.scrollCycleList();
+        // Ordered list of layout ids to cycle through with the scroll wheel.
+        const ids = root.visibleLayoutOptions().map(option => option.id);
         if (ids.length === 0) {
             return;
         }
